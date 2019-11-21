@@ -46,3 +46,17 @@ class Packet:
         if flagbit is not None:
             if flagbit & self.flags == 1:
                 self.flags = self.flags ^ flagbit
+
+    # Set segment of the header based on offset and size. Data
+    def setsegment(self, segname, data):
+        if segname is not None:
+            offset = self.offsets.get(segname)
+            size = self.sizes.get(segname)
+
+            if offset is not None and size is not None:
+                bdata = bytes(size)
+                bdata = data.to_bytes(size, "big")
+
+                for i in range(size):
+                    self.header[offset + i] = bdata[i]
+
