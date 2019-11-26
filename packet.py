@@ -4,9 +4,6 @@
 class Packet:
 
     def __init__(self, dest):
-        self.dest = dest
-        self.header = bytearray(47)
-        self.flags = bytes(1)
 
         # Offset of each header segment
         self.offsets = {
@@ -36,6 +33,10 @@ class Packet:
             "RST": 0x08
         }
 
+        self.dest = dest
+        self.header = bytearray(self.offsets["DATA"] + self.sizes["DATA"])
+        self.flags = bytes(1)
+
     def addflag(self, flagname):
         flagbit = self.flagnames.get(flagname)
         if flagbit is not None:
@@ -47,16 +48,37 @@ class Packet:
             if flagbit & self.flags == 1:
                 self.flags = self.flags ^ flagbit
 
-    # Set segment of the header based on offset and size. Data
-    def setsegment(self, segname, data):
+    # Set segment of the header based on offset and size. Size (bytes) is a required field for data segment.
+    def setsegment(self, segname, size, data):
+        if segname is not None:
+            offset = self.offsets.get(segname)
+
+            if segname == "DATA":
+                self.sizes["DATA"] = size
+
+            if offset is not None and size is not None:
+                # Byte data to be inserted
+                bdata = bytearray(size)
+                bdata = data.to_bytes(size, "big")
+
+                # New header byte array
+                newheaderlen = self.offsets["DATA"] + self.sizes["DATA"]
+                newheader = bytearray(newheaderlen)
+
+                for i in range(len(self.header)):
+                    newheader[i] = self.header[i]
+
+                for i in range(size):
+                    newheader[offset + i] = bdata[i]
+
+                self.header = newheader
+
+
+    def getsegment(self, segname):
         if segname is not None:
             offset = self.offsets.get(segname)
             size = self.sizes.get(segname)
 
             if offset is not None and size is not None:
-                bdata = bytes(size)
-                bdata = data.to_bytes(size, "big")
-
-                for i in range(size):
-                    self.header[offset + i] = bdata[i]
+                return self.header[offset:offset+size]
 
