@@ -2,7 +2,7 @@
 
 import packet
 
-packet = packet.Packet("")
+packet = packet.Packet()
 
 packet.setsegment("SEQ", packet.sizes["SEQ"], 0x01010101)
 packet.setsegment("ACK", packet.sizes["ACK"], 0x02020202)

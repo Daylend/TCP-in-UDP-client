@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 
 
+# Handles low level byte manipulation
 class Packet:
 
-    def __init__(self, dest):
+    def __init__(self):
 
         # Offset of each header segment
         self.offsets = {
@@ -33,20 +34,27 @@ class Packet:
             "RST": 0x08
         }
 
-        self.dest = dest
         self.header = bytearray(self.offsets["DATA"] + self.sizes["DATA"])
         self.flags = bytes(1)
 
+    # Add flag and add to header
     def addflag(self, flagname):
         flagbit = self.flagnames.get(flagname)
         if flagbit is not None:
             self.flags = self.flags | flagbit
+            self.setflag(self.flags)
 
+    # Delete flag and remove from header
     def delflag(self, flagname):
         flagbit = self.flagnames.get(flagname)
         if flagbit is not None:
             if flagbit & self.flags == 1:
                 self.flags = self.flags ^ flagbit
+                self.setflag(self.flags)
+
+    # Sets the FLAGS segment in the header
+    def setflag(self, byte):
+        self.setsegment("FLAGS", 1, self.flags)
 
     # Set segment of the header based on offset and size. Size (bytes) is a required field for data segment.
     def setsegment(self, segname, size, data):
@@ -73,7 +81,7 @@ class Packet:
 
                 self.header = newheader
 
-
+    # Get segment of the header from segment name (bytearray)
     def getsegment(self, segname):
         if segname is not None:
             offset = self.offsets.get(segname)
