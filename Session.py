@@ -19,13 +19,15 @@ class Session:
             "CLIENT_FIN_ACK"
         }
         self.__window = deque()
+        self.__lastack = 0
         self.__socket = self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__buffsize = 4096
         # Do I really need this?
         self.__established = False
 
     def connect(self):
-        pass
+        self.__handshake()
+        self.__data_recv()
 
     # Attempt to 3-way handshake. Will give up if anything goes wrong.
     def __handshake(self):
@@ -49,6 +51,7 @@ class Session:
                 if datapkt.getflag("ACK") and datapkt.getflag("SYN"):
                     # Make sure it's actually an ACK for our SYN
                     if datapkt.getsegment("ACK") == seqlen:
+                        self.__lastack = datapkt.getsegment("ACK")
                         # Alright send the ack ack ack ack ack
                         ackpacket = packet.Packet()
                         ackpacket.addflag("ACK")
@@ -62,13 +65,53 @@ class Session:
         except:
             print("AHHHHHHHHHH")
 
-
     # Step 4, receive the data from server
     def __data_recv(self):
+        if self.__established:
+            try:
+                isfin = False
+                while not isfin:
+                    if len(self.__window) > 0:
+                        # Look at the stuff in the queue before we receive new data
+
+                        # Make sure to handle FIN here as well
+                        pass
+
+                    # Okay now we can handle new data
+                    data, address = self.__socket.recvfrom(self.__buffsize)
+                    if data is not None:
+                        datapkt = packet.Packet()
+                        datapkt.fromstring(data)
+
+                        # If this is the packet we're expecting to receive
+                        if self.__islatestpacket(datapkt):
+                            # If the incoming data is not finished
+                            if not datapkt.getflag("FIN"):
+                                # Get the data from the packet and send back an ack
+                                pass
+
+                            else:
+                                isfin = True
+                        else:
+                            # Else throw it in the queue to look at later
+                            self.__window.append(datapkt)
+                    if isfin:
+                        # Wrap up we're done here
+                        pass
+            except:
+                pass
+
+    # Check to make sure this is the next SEQ # we're expecting (last == current - len)
+    def __islatestpacket(self, pkt):
         pass
 
-    # Step 5, send ack for each data packet from server
-    def __data_ack(self):
+    # Send ack for each data seq packet
+    def __data_ack(self, seq):
+
+        ackpkt = packet.Packet()
+        ackpkt.addflag("ACK")
+        ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], seq)
+        self.__lastack = seq
         pass
 
     # Step 6, receive fin from server
