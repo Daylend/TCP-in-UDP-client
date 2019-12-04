@@ -26,10 +26,14 @@ class Session:
         # Do I really need this?
         self.__established = False
         # Byte array or string? Does it matter really?
-        self.__databuffer = ""
+        self.databuffer = ""
 
     def connect(self):
+        # Reset all the information from potential previous sessions
+        self.__init__(self.address[0], self.address[1])
+        # Run 3 way handshake against client
         self.__handshake()
+        # Receive data from server. This will terminate the connection automatically after data is received.
         self.__data_recv()
 
     # Attempt to 3-way handshake. Will give up if anything goes wrong.
@@ -72,20 +76,33 @@ class Session:
         except:
             print("AHHHHHHHHHH")
 
-    # Step 4, receive the data from server
+    # Receive the data from server
     def __data_recv(self):
         if self.__established:
             try:
                 isfin = False
                 while not isfin:
+                    # Look at the stuff in the window before we receive new data
                     if len(self.__window) > 0:
-                        # Look at the stuff in the window before we receive new data
                         for pkt in self.__window:
                             if self.__islatestpacket(pkt):
-                                # TODO: Pull the data from the data segment, send ack, update last ack
-                                pass
+                                # Pull the data from the data segment, send ack, delete from window
+                                self.__appendbuffer(pkt.getsegment("DATA"))
+                                self.__data_ack(pkt.getsegment("SEQ"))
+
                                 if pkt.getflag("FIN"):
+                                    # If FIN, then gracefully disconnect
                                     isfin = True
+                                    self.__fin_ack(pkt.getsegment("SEQ"))
+                                    self.disconnect()
+
+                                # Make sure to remove the packet from the window
+                                del(self.__window[pkt])
+                                # TODO: ?MAYBE? add edge case to remove packets under the current SEQ if found,
+                                #  shouldnt happen though (low priority)
+                                # Break out of checking packets in the window as we found the one we want
+                                # This might be redundant but I don't want to think about it rn
+                                break
 
                     # Okay now we can handle new data
                     data, address = self.__socket.recvfrom(self.__buffsize)
@@ -97,21 +114,23 @@ class Session:
                         if self.__islatestpacket(datapkt):
                             # If the incoming data is not finished
                             if not datapkt.getflag("FIN"):
-                                # TODO: Get the data from the packet and send back an ack
-                                pass
+                                # Get the data from the packet and send back an ack
+                                self.__appendbuffer(datapkt.getsegment("DATA"))
+                                self.__data_ack(datapkt.getsegment("SEQ"))
 
                             else:
+                                # If FIN, then gracefully disconnect
                                 isfin = True
+                                self.__fin_ack(datapkt.getsegment("SEQ"))
+                                self.disconnect()
                         else:
                             # Else throw it in the queue to look at later
                             dataseq = datapkt.getsegment("SEQ")
-                            # Make sure the SEQ number is greater than the ACK we're expecting, otherwise it's a dupe
-                            # TODO: Check for last ack and resend ACK if last ack
+
+                            # Make sure the SEQ number is greater than the ACK we last sent, otherwise it's a dupe
+                            # TODO: Check for last ack and resend ACK if last ack (low priority)
                             if dataseq > self.__lastack:
                                 self.__window[datapkt] = dataseq
-                    if isfin:
-                        # TODO: Wrap up we're done here (fin was recvd)
-                        pass
             except:
                 print("AHHHHHHHHHHHHHHHHHHH")
 
@@ -122,31 +141,41 @@ class Session:
         # If seq1 is 10, ack1 is 15, and seq2 is 23, we know latest packet is seq2 - seq2.length == lastack + ack.length
         return seq - pkt.length == self.__expectedseq()
 
+    def __islastpacket(self, pkt):
+        # TODO: Check to see if this is the same packet as the one that was last ack'd
+        #   This requires us to remember 2 ACK values. (low priority)
+        seq = pkt.getsegment("SEQ")
+
     # We expect the next sequence number to be the last ACK + the last ACK's length + some unknown value greater than 45
     def __expectedseq(self):
         temp = packet.Packet()
         return self.__lastack + temp.length
 
+    def __appendbuffer(self, data):
+        # Chances are this doesn't work but I'm lazy so let's find out
+        self.databuffer += data
+
     # Send ack for each received data seq packet
     def __data_ack(self, rseq):
-
         ackpkt = packet.Packet()
         ackpkt.addflag("ACK")
         ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq + ackpkt.length)
         self.__lastack = rseq
-        pass
+        self.__socket.sendto(ackpkt.header, self.address)
 
-    # Step 6, receive fin from server
-    def __connect_fin(self):
-        pass
+    # Send fin ack from fin to server
+    def __fin_ack(self, rseq):
+        finpkt = packet.Packet()
+        finpkt.addflag("FIN")
+        finpkt.addflag("ACK")
+        finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq + finpkt.length)
+        self.__lastack = rseq
+        self.__socket.sendto(finpkt.header, self.address)
 
-    # Step 7, send ack from fin to server
-    def __connect_fin_ack(self):
-        pass
-
-    # Force disconnect from session
+    # Disconnect from session. This can be after a graceful release or forced.
     def disconnect(self):
-        pass
+        self.__socket.close()
+        self.__established = False
 
 
 
