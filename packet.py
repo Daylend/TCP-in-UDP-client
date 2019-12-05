@@ -46,26 +46,29 @@ class Packet:
     # Add flag and add to header
     def addflag(self, flagname):
         flagbit = self.flagnames.get(flagname)
+        flagsbit = int.from_bytes(self.flags, "big", signed=True)
         if flagbit is not None:
-            self.flags = self.flags | flagbit
+            self.flags = (flagsbit | flagbit).to_bytes(4, "big")
             self.setflag(self.flags)
 
     # Delete flag and remove from header
     def delflag(self, flagname):
         flagbit = self.flagnames[flagname]
+        flagsbit = int.from_bytes(self.flags, "big", signed=True)
         if flagbit is not None:
-            if flagbit & self.flags == 1:
-                self.flags = self.flags ^ flagbit
+            if flagbit & flagsbit == flagbit:
+                self.flags = (flagsbit ^ flagbit).to_bytes(4, "big")
                 self.setflag(self.flags)
 
     # Sets the FLAGS segment in the header
     def setflag(self, byte):
-        self.setsegment("FLAGS", 1, self.flags)
+        self.setsegment("FLAGS", 1, byte)
 
     def getflag(self, flagname):
         flagbit = self.flagnames[flagname]
+        flagsbit = int.from_bytes(self.flags, "big", signed=True)
         if flagbit is not None:
-            return flagbit & int(self.flags) == 1
+            return flagbit & flagsbit == flagbit
 
 
     # Set segment of the header based on offset and size. Size (bytes) is a required field for data segment.
@@ -81,7 +84,12 @@ class Packet:
             if offset is not None and size is not None:
                 # Byte data to be inserted
                 bdata = bytearray(size)
-                bdata = data.to_bytes(size, "big")
+
+                # Support for ints or byte arrays
+                if isinstance(data, int):
+                    bdata = data.to_bytes(size, "big")
+                else:
+                    bdata = data
 
                 # New header byte array, update len to fit new data size
                 self.updatelen()
@@ -108,12 +116,12 @@ class Packet:
         # Copy entire buffer to packet temporarily
         self.header = data
         # Get the length of the actual buffer
-        length = self.getsegment("LENGTH")
+        length = int.from_bytes(self.getsegment("LENGTH"), 'big', signed=True)
         # Get the length of the data field
         datalen = length - self.offsets["DATA"]
 
         # Set the header to the proper length
-        self.header = data.to_bytes(length, "big")
+        self.header = data
         # Set the data size to the proper length
         self.sizes["DATA"] = datalen
         # Update the length field to match the new packet size
