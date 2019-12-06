@@ -7,8 +7,9 @@ from collections import OrderedDict
 # Implements the session logic using packets
 class Session:
 
-    def __init__(self, dest, port):
-        self.address = (dest, port)
+    def __init__(self, dest, sport, rport):
+        self.address = (dest, sport)
+        self.rport = rport
         self.__states = {
             "CLIENT_CONNECT_SYN",
             "SERVER_CONNECT_SYN_ACK",
@@ -23,6 +24,7 @@ class Session:
         self.__lastack = 0
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         #self.__socket.settimeout(5)
+        self.__socket.bind((dest, rport))
         self.__buffsize = 8192
         # Do I really need this?
         self.__established = False
@@ -31,7 +33,7 @@ class Session:
 
     def connect(self):
         # Reset all the information from potential previous sessions
-        self.__init__(self.address[0], self.address[1])
+        self.__init__(self.address[0], self.address[1], self.rport)
         # Run 3 way handshake against client
         self.__handshake()
         # Receive data from server. This will terminate the connection automatically after data is received.
@@ -147,7 +149,7 @@ class Session:
                                 self.disconnect()
                         else:
                             # Else throw it in the queue to look at later
-                            dataseq = int.frombytes(datapkt.getsegment("SEQ"))
+                            dataseq = int.from_bytes(datapkt.getsegment("SEQ"), "big", signed=True)
 
                             # Make sure the SEQ number is greater than the ACK we last sent, otherwise it's a dupe
                             # TODO: Check for last ack and resend ACK if last ack (low priority)
@@ -192,6 +194,9 @@ class Session:
 
     # Send fin ack from fin to server
     def __fin_ack(self, rseq):
+        # Should be a byte then so convert to int
+        if not isinstance(rseq, int):
+            rseq = int.from_bytes(rseq, "big", signed=True)
         finpkt = packet.Packet()
         finpkt.addflag("FIN")
         finpkt.addflag("ACK")
