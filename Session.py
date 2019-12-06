@@ -23,7 +23,7 @@ class Session:
         self.__window = OrderedDict()
         self.__lastack = 0
         self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        #self.__socket.settimeout(5)
+        self.__socket.settimeout(5)
         self.__socket.bind((dest, rport))
         self.__buffsize = 8192
         # Do I really need this?
@@ -39,7 +39,7 @@ class Session:
         # Receive data from server. This will terminate the connection automatically after data is received.
         self.__data_recv()
 
-    def print_packet(self, pkt, recvd):
+    def print_packet(self, pkt, recvd, note=""):
         seq = str(int.from_bytes(pkt.getsegment("SEQ"), "big", signed=True))
         ack = str(int.from_bytes(pkt.getsegment("ACK"), "big", signed=True))
         len = str(int.from_bytes(pkt.getsegment("LENGTH"), "big", signed=True))
@@ -47,12 +47,12 @@ class Session:
         data = str(pkt.getsegment("DATA"))
 
         if recvd:
-            print("RECEIVED")
+            print("RECEIVED - " + note)
         else:
-            print("SENT")
-        print("Packet: " + str(pkt.header))
+            print("SENT - " + note)
+        print("Packet: " + str(pkt.header)[0:100] + " ... ")
         print("SEQ: " + seq + " ACK: " + ack + " LEN: " + len + " FLAGS: " + flags)
-        print("DATA: " + data)
+        #print("DATA: " + data)
         print("----------------")
 
     # Attempt to 3-way handshake. Will give up if anything goes wrong.
@@ -66,14 +66,14 @@ class Session:
 
         try:
             self.__socket.sendto(seqpacket.header, self.address)
-            self.print_packet(seqpacket, False)
+            self.print_packet(seqpacket, False, "handshake send")
             data, address = self.__socket.recvfrom(self.__buffsize)
 
             if data is not None:
                 datapkt = packet.Packet()
                 # Convert data string to packet
                 datapkt.fromstring(data)
-                self.print_packet(datapkt, True)
+                self.print_packet(datapkt, True, "handshake recv")
 
                 # Confirm it's actually the packet we want
                 if datapkt.getflag("ACK") and datapkt.getflag("SYN"):
@@ -94,9 +94,11 @@ class Session:
                         self.__data_ack(datapkt.getsegment("SEQ"))
                         #self.print_packet(ackpacket)
                         self.__established = True
+                else:
+                    raise Exception('Received incorrect handshake packet. Giving up.')
 
         except socket.timeout:
-            print("AHHHHHHHHHH")
+            print("Global timeout reached - giving up")
 
     # Receive the data from server
     def __data_recv(self):
@@ -132,23 +134,25 @@ class Session:
                     if data is not None:
                         datapkt = packet.Packet()
                         datapkt.fromstring(data)
-                        self.print_packet(datapkt, True)
 
                         # If this is the packet we're expecting to receive
                         if self.__islatestpacket(datapkt):
                             # If the incoming data is not finished
                             if not datapkt.getflag("FIN"):
                                 # Get the data from the packet and send back an ack
+                                self.print_packet(datapkt, True, "Data recvfrom expected")
                                 self.__appendbuffer(datapkt.getsegment("DATA"))
                                 self.__data_ack(datapkt.getsegment("SEQ"))
-
                             else:
                                 # If FIN, then gracefully disconnect
                                 isfin = True
+                                self.print_packet(datapkt, True, "Data recvfrom expected - FIN")
+                                self.__appendbuffer(datapkt.getsegment("DATA"))
                                 self.__fin_ack(datapkt.getsegment("SEQ"))
                                 self.disconnect()
                         else:
                             # Else throw it in the queue to look at later
+                            self.print_packet(datapkt, True, "Data recvfrom unexpected")
                             dataseq = int.from_bytes(datapkt.getsegment("SEQ"), "big", signed=True)
 
                             # Make sure the SEQ number is greater than the ACK we last sent, otherwise it's a dupe
@@ -156,7 +160,7 @@ class Session:
                             if dataseq > self.__lastack:
                                 self.__window[datapkt] = dataseq
             except socket.timeout:
-                print("AHHHHHHHHHHHHHHHHHHH")
+                print("Global timeout reached - giving up")
 
     # Check to make sure this is the next SEQ # we're expecting (last == current - len)
     def __islatestpacket(self, pkt):
@@ -194,7 +198,7 @@ class Session:
         ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__socket.sendto(ackpkt.header, self.address)
-        self.print_packet(ackpkt, False)
+        self.print_packet(ackpkt, False, "Data ack")
 
     # Send fin ack from fin to server
     def __fin_ack(self, rseq):
@@ -208,7 +212,7 @@ class Session:
         finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__socket.sendto(finpkt.header, self.address)
-        self.print_packet(finpkt, False)
+        self.print_packet(finpkt, False, "Fin ack")
 
     # Disconnect from session. This can be after a graceful release or forced.
     def disconnect(self):
