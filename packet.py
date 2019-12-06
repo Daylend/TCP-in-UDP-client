@@ -36,11 +36,12 @@ class Packet:
 
         self.header = bytearray(self.offsets["DATA"] + self.sizes["DATA"])
         # Length in bytes
-        self.length = self.offsets["DATA"]
+        self.updatelen()
 
     # Update length field (in bytes)
     def updatelen(self):
         self.length = self.offsets["DATA"] + self.sizes["DATA"]
+        self.setsegment("LENGTH", self.sizes["LENGTH"], self.length)
 
     # Add flag and add to header
     def addflag(self, flagname):
@@ -92,7 +93,8 @@ class Packet:
                     bdata = data
 
                 # New header byte array, update len to fit new data size
-                self.updatelen()
+                if segname == "DATA":
+                    self.updatelen()
                 newheader = bytearray(self.length)
 
                 for i in range(len(self.header)):
@@ -128,6 +130,9 @@ class Packet:
         self.updatelen()
         # Fix the internal flag value
         #self.flags = self.getsegment("FLAGS")
+
+    def __len__(self):
+        length = int.from_bytes(self.getsegment("LENGTH"), "big", signed=True)
 
 
 

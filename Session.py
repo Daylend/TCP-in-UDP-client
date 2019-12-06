@@ -21,8 +21,9 @@ class Session:
         # Ordered dict = sorted buffer window by SEQ number = no iterating through list/queue
         self.__window = OrderedDict()
         self.__lastack = 0
-        self.__socket = self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.__buffsize = 4096
+        self.__socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #self.__socket.settimeout(5)
+        self.__buffsize = 8192
         # Do I really need this?
         self.__established = False
         # Byte array or string? Does it matter really?
@@ -92,7 +93,7 @@ class Session:
                         #self.print_packet(ackpacket)
                         self.__established = True
 
-        except TimeoutError:
+        except socket.timeout:
             print("AHHHHHHHHHH")
 
     # Receive the data from server
@@ -146,13 +147,13 @@ class Session:
                                 self.disconnect()
                         else:
                             # Else throw it in the queue to look at later
-                            dataseq = datapkt.getsegment("SEQ")
+                            dataseq = int.frombytes(datapkt.getsegment("SEQ"))
 
                             # Make sure the SEQ number is greater than the ACK we last sent, otherwise it's a dupe
                             # TODO: Check for last ack and resend ACK if last ack (low priority)
                             if dataseq > self.__lastack:
                                 self.__window[datapkt] = dataseq
-            except TimeoutError:
+            except socket.timeout:
                 print("AHHHHHHHHHHHHHHHHHHH")
 
     # Check to make sure this is the next SEQ # we're expecting (last == current - len)
