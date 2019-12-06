@@ -177,7 +177,11 @@ class Session:
 
     def __appendbuffer(self, data):
         # Chances are this doesn't work but I'm lazy so let's find out
-        self.databuffer += bytearray(data)
+        if data is not None:
+            if not isinstance(data, bytearray):
+                self.databuffer += bytearray(data)
+            else:
+                self.databuffer += data
 
     # Send ack for each received data seq packet
     def __data_ack(self, rseq):
