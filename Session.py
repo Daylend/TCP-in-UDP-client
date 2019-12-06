@@ -26,7 +26,7 @@ class Session:
         # Do I really need this?
         self.__established = False
         # Byte array or string? Does it matter really?
-        self.databuffer = ""
+        self.databuffer = bytearray(0)
 
     def connect(self):
         # Reset all the information from potential previous sessions
@@ -35,6 +35,22 @@ class Session:
         self.__handshake()
         # Receive data from server. This will terminate the connection automatically after data is received.
         self.__data_recv()
+
+    def print_packet(self, pkt, recvd):
+        seq = str(int.from_bytes(pkt.getsegment("SEQ"), "big", signed=True))
+        ack = str(int.from_bytes(pkt.getsegment("ACK"), "big", signed=True))
+        len = str(int.from_bytes(pkt.getsegment("LENGTH"), "big", signed=True))
+        flags = str(pkt.getsegment("FLAGS"))
+        data = str(pkt.getsegment("DATA"))
+
+        if recvd:
+            print("RECEIVED")
+        else:
+            print("SENT")
+        print("Packet: " + str(pkt.header))
+        print("SEQ: " + seq + " ACK: " + ack + " LEN: " + len + " FLAGS: " + flags)
+        print("DATA: " + data)
+        print("----------------")
 
     # Attempt to 3-way handshake. Will give up if anything goes wrong.
     def __handshake(self):
@@ -47,33 +63,36 @@ class Session:
 
         try:
             self.__socket.sendto(seqpacket.header, self.address)
+            self.print_packet(seqpacket, False)
             data, address = self.__socket.recvfrom(self.__buffsize)
 
             if data is not None:
                 datapkt = packet.Packet()
                 # Convert data string to packet
                 datapkt.fromstring(data)
+                self.print_packet(datapkt, True)
 
                 # Confirm it's actually the packet we want
                 if datapkt.getflag("ACK") and datapkt.getflag("SYN"):
                     # Make sure it's actually an ACK for our SYN
-                    if datapkt.getsegment("ACK") == seqlen:
+                    if int.from_bytes(datapkt.getsegment("ACK"), "big", signed=True) == seqlen:
                         # Alright send the ack ack ack ack ack
-                        ackpacket = packet.Packet()
-                        ackpacket.addflag("ACK")
+                        #ackpacket = packet.Packet()
+                        #ackpacket.addflag("ACK")
                         # New SEQ is old ACK + new SEQ len
-                        acklen = seqlen + ackpacket.length
-                        ackpacket.setsegment("SEQ", ackpacket.sizes["SEQ"], acklen)
+                        #acklen = seqlen + ackpacket.length
+                        #ackpacket.setsegment("SEQ", ackpacket.sizes["SEQ"], acklen)
                         # Ack = old SEQ
-                        ackpacket.setsegment("ACK", ackpacket.sizes["ACK"], datapkt.getsegment("SEQ"))
+                        #ackpacket.setsegment("ACK", ackpacket.sizes["ACK"], datapkt.getsegment("SEQ"))
 
-                        self.__lastack = ackpacket.getsegment("ACK")
+                        #self.__lastack = ackpacket.getsegment("ACK")
 
-                        self.__socket.sendto(datapkt.header, self.address)
+                        #self.__socket.sendto(ackpacket.header, self.address)
+                        self.__data_ack(datapkt.getsegment("SEQ"))
+                        #self.print_packet(ackpacket)
                         self.__established = True
 
-
-        except:
+        except TimeoutError:
             print("AHHHHHHHHHH")
 
     # Receive the data from server
@@ -86,6 +105,7 @@ class Session:
                     if len(self.__window) > 0:
                         for pkt in self.__window:
                             if self.__islatestpacket(pkt):
+
                                 # Pull the data from the data segment, send ack, delete from window
                                 self.__appendbuffer(pkt.getsegment("DATA"))
                                 self.__data_ack(pkt.getsegment("SEQ"))
@@ -109,6 +129,7 @@ class Session:
                     if data is not None:
                         datapkt = packet.Packet()
                         datapkt.fromstring(data)
+                        self.print_packet(datapkt, True)
 
                         # If this is the packet we're expecting to receive
                         if self.__islatestpacket(datapkt):
@@ -131,13 +152,13 @@ class Session:
                             # TODO: Check for last ack and resend ACK if last ack (low priority)
                             if dataseq > self.__lastack:
                                 self.__window[datapkt] = dataseq
-            except:
+            except TimeoutError:
                 print("AHHHHHHHHHHHHHHHHHHH")
 
     # Check to make sure this is the next SEQ # we're expecting (last == current - len)
     def __islatestpacket(self, pkt):
         # We have to make sure we're taking our ACK SEQ numbers into account. (45)
-        seq = pkt.getsegment("SEQ")
+        seq = int.from_bytes(pkt.getsegment("SEQ"), "big", signed=True)
         # If seq1 is 10, ack1 is 15, and seq2 is 23, we know latest packet is seq2 - seq2.length == lastack + ack.length
         return seq - pkt.length == self.__expectedseq()
 
@@ -153,30 +174,36 @@ class Session:
 
     def __appendbuffer(self, data):
         # Chances are this doesn't work but I'm lazy so let's find out
-        self.databuffer += data
+        self.databuffer += bytearray(data)
 
     # Send ack for each received data seq packet
     def __data_ack(self, rseq):
+        # Should be a byte then so convert to int
+        if not isinstance(rseq, int):
+            rseq = int.from_bytes(rseq, "big", signed=True)
         ackpkt = packet.Packet()
         ackpkt.addflag("ACK")
-        ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq + ackpkt.length)
+        ackpkt.setsegment("SEQ", ackpkt.sizes["SEQ"], rseq + ackpkt.length)
+        ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__socket.sendto(ackpkt.header, self.address)
+        self.print_packet(ackpkt, False)
 
     # Send fin ack from fin to server
     def __fin_ack(self, rseq):
         finpkt = packet.Packet()
         finpkt.addflag("FIN")
         finpkt.addflag("ACK")
-        finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq + finpkt.length)
+        finpkt.setsegment("SEQ", finpkt.sizes["SEQ"], rseq + finpkt.length)
+        finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__socket.sendto(finpkt.header, self.address)
+        self.print_packet(finpkt, False)
 
     # Disconnect from session. This can be after a graceful release or forced.
     def disconnect(self):
         self.__socket.close()
         self.__established = False
-
 
 
 

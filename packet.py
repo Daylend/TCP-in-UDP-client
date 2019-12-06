@@ -35,7 +35,6 @@ class Packet:
         }
 
         self.header = bytearray(self.offsets["DATA"] + self.sizes["DATA"])
-        self.flags = bytes(1)
         # Length in bytes
         self.length = self.offsets["DATA"]
 
@@ -45,28 +44,29 @@ class Packet:
 
     # Add flag and add to header
     def addflag(self, flagname):
+        flags = self.getsegment("FLAGS")
         flagbit = self.flagnames.get(flagname)
-        flagsbit = int.from_bytes(self.flags, "big", signed=True)
+        flagsbit = int.from_bytes(flags, "big", signed=True)
         if flagbit is not None:
-            self.flags = (flagsbit | flagbit).to_bytes(4, "big")
-            self.setflag(self.flags)
+            #self.flags = (flagsbit | flagbit).to_bytes(1, "big")
+            #self.setflag(self.flags)
+            self.setsegment("FLAGS", self.sizes["FLAGS"], (flagsbit | flagbit).to_bytes(self.sizes["FLAGS"], "big"))
 
     # Delete flag and remove from header
     def delflag(self, flagname):
+        flags = self.getsegment("FLAGS")
         flagbit = self.flagnames[flagname]
-        flagsbit = int.from_bytes(self.flags, "big", signed=True)
+        flagsbit = int.from_bytes(flags, "big", signed=True)
         if flagbit is not None:
             if flagbit & flagsbit == flagbit:
-                self.flags = (flagsbit ^ flagbit).to_bytes(4, "big")
-                self.setflag(self.flags)
-
-    # Sets the FLAGS segment in the header
-    def setflag(self, byte):
-        self.setsegment("FLAGS", 1, byte)
+                #self.flags = (flagsbit ^ flagbit).to_bytes(1, "big")
+                #self.setflag(self.flags)
+                self.setsegment("FLAGS", self.sizes["FLAGS"], (flagsbit ^ flagbit).to_bytes(self.sizes["FLAGS"], "big"))
 
     def getflag(self, flagname):
+        flags = self.getsegment("FLAGS")
         flagbit = self.flagnames[flagname]
-        flagsbit = int.from_bytes(self.flags, "big", signed=True)
+        flagsbit = int.from_bytes(flags, "big", signed=True)
         if flagbit is not None:
             return flagbit & flagsbit == flagbit
 
@@ -127,7 +127,7 @@ class Packet:
         # Update the length field to match the new packet size
         self.updatelen()
         # Fix the internal flag value
-        self.flags = self.getsegment("FLAGS")
+        #self.flags = self.getsegment("FLAGS")
 
 
 

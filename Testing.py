@@ -49,6 +49,13 @@ class TestPacketByteManip(unittest.TestCase):
         self.assertEqual(seg3.to_bytes(4, "big"), getSeg3)
         self.assertEqual(pkt2.getflag("SYN"), True)
 
+    def test_flags(self):
+        pkt = packet.Packet()
+
+        pkt.addflag("SYN")
+        self.assertTrue(pkt.getflag("SYN"))
+        pkt.delflag("SYN")
+        self.assertFalse(pkt.getflag("SYN"))
 
 if __name__ == '__main__':
     unittest.main()
