@@ -64,7 +64,7 @@ class Session:
         seqpacket = packet.Packet()
         seqpacket.addflag("SYN")
         # We'll use this later
-        seqlen = seqpacket.length
+        seqlen = len(seqpacket)
         seqpacket.setsegment("SEQ", seqpacket.sizes["SEQ"], seqlen)
 
         try:
@@ -159,7 +159,7 @@ class Session:
         # We have to make sure we're taking our ACK SEQ numbers into account. (45)
         seq = int.from_bytes(pkt.getsegment("SEQ"), "big", signed=True)
         # If seq1 is 10, ack1 is 15, and seq2 is 23, we know latest packet is seq2 - seq2.length == lastack + ack.length
-        return seq - pkt.length == self.__expectedseq()
+        return seq - len(pkt) == self.__expectedseq()
 
     def __islastpacket(self, pkt):
         # TODO: Check to see if this is the same packet as the one that was last ack'd
@@ -169,7 +169,7 @@ class Session:
     # We expect the next sequence number to be the last ACK + the last ACK's length + some unknown value greater than 45
     def __expectedseq(self):
         temp = packet.Packet()
-        return self.__lastack + temp.length
+        return self.__lastack + temp.offsets["DATA"]
 
     def __appendbuffer(self, data):
         # Chances are this doesn't work but I'm lazy so let's find out
@@ -187,7 +187,7 @@ class Session:
 
         ackpkt = packet.Packet()
         ackpkt.addflag("ACK")
-        ackpkt.setsegment("SEQ", ackpkt.sizes["SEQ"], rseq + ackpkt.length)
+        ackpkt.setsegment("SEQ", ackpkt.sizes["SEQ"], rseq + len(ackpkt))
         ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__sendpkt(ackpkt, failchance)
@@ -201,7 +201,7 @@ class Session:
         finpkt = packet.Packet()
         finpkt.addflag("FIN")
         finpkt.addflag("ACK")
-        finpkt.setsegment("SEQ", finpkt.sizes["SEQ"], rseq + finpkt.length)
+        finpkt.setsegment("SEQ", finpkt.sizes["SEQ"], rseq + len(finpkt))
         finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
         self.__sendpkt(finpkt, failchance)
