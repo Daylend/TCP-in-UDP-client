@@ -3,6 +3,7 @@
 import packet
 import socket
 from collections import OrderedDict
+import random
 
 # Implements the session logic using packets
 class Session:
@@ -30,6 +31,8 @@ class Session:
         self.__established = False
         # Byte array or string? Does it matter really?
         self.databuffer = bytearray(0)
+        # Fail chance for any given packet
+        self.__failchance = 0.0
 
     def connect(self):
         # Reset all the information from potential previous sessions
@@ -65,7 +68,8 @@ class Session:
         seqpacket.setsegment("SEQ", seqpacket.sizes["SEQ"], seqlen)
 
         try:
-            self.__socket.sendto(seqpacket.header, self.address)
+            #self.__socket.sendto(seqpacket.header, self.address)
+            self.__sendpkt(seqpacket, 0.0)
             self.print_packet(seqpacket, False, "handshake send")
             data, address = self.__socket.recvfrom(self.__buffsize)
 
@@ -80,19 +84,7 @@ class Session:
                     # Make sure it's actually an ACK for our SYN
                     if int.from_bytes(datapkt.getsegment("ACK"), "big", signed=True) == seqlen:
                         # Alright send the ack ack ack ack ack
-                        #ackpacket = packet.Packet()
-                        #ackpacket.addflag("ACK")
-                        # New SEQ is old ACK + new SEQ len
-                        #acklen = seqlen + ackpacket.length
-                        #ackpacket.setsegment("SEQ", ackpacket.sizes["SEQ"], acklen)
-                        # Ack = old SEQ
-                        #ackpacket.setsegment("ACK", ackpacket.sizes["ACK"], datapkt.getsegment("SEQ"))
-
-                        #self.__lastack = ackpacket.getsegment("ACK")
-
-                        #self.__socket.sendto(ackpacket.header, self.address)
-                        self.__data_ack(datapkt.getsegment("SEQ"))
-                        #self.print_packet(ackpacket)
+                        self.__data_ack(datapkt.getsegment("SEQ"), 0.0)
                         self.__established = True
                 else:
                     raise Exception('Received incorrect handshake packet. Giving up.')
@@ -113,12 +105,12 @@ class Session:
 
                                 # Pull the data from the data segment, send ack, delete from window
                                 self.__appendbuffer(pkt.getsegment("DATA"))
-                                self.__data_ack(pkt.getsegment("SEQ"))
+                                self.__data_ack(pkt.getsegment("SEQ"), self.__failchance)
 
                                 if pkt.getflag("FIN"):
                                     # If FIN, then gracefully disconnect
                                     isfin = True
-                                    self.__fin_ack(pkt.getsegment("SEQ"))
+                                    self.__fin_ack(pkt.getsegment("SEQ"), self.__failchance)
                                     self.disconnect()
 
                                 # Make sure to remove the packet from the window
@@ -142,13 +134,13 @@ class Session:
                                 # Get the data from the packet and send back an ack
                                 self.print_packet(datapkt, True, "Data recvfrom expected")
                                 self.__appendbuffer(datapkt.getsegment("DATA"))
-                                self.__data_ack(datapkt.getsegment("SEQ"))
+                                self.__data_ack(datapkt.getsegment("SEQ"), self.__failchance)
                             else:
                                 # If FIN, then gracefully disconnect
                                 isfin = True
                                 self.print_packet(datapkt, True, "Data recvfrom expected - FIN")
                                 self.__appendbuffer(datapkt.getsegment("DATA"))
-                                self.__fin_ack(datapkt.getsegment("SEQ"))
+                                self.__fin_ack(datapkt.getsegment("SEQ"), self.__failchance)
                                 self.disconnect()
                         else:
                             # Else throw it in the queue to look at later
@@ -188,20 +180,21 @@ class Session:
                 self.databuffer += data
 
     # Send ack for each received data seq packet
-    def __data_ack(self, rseq):
+    def __data_ack(self, rseq, failchance):
         # Should be a byte then so convert to int
         if not isinstance(rseq, int):
             rseq = int.from_bytes(rseq, "big", signed=True)
+
         ackpkt = packet.Packet()
         ackpkt.addflag("ACK")
         ackpkt.setsegment("SEQ", ackpkt.sizes["SEQ"], rseq + ackpkt.length)
         ackpkt.setsegment("ACK", ackpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
-        self.__socket.sendto(ackpkt.header, self.address)
+        self.__sendpkt(ackpkt, failchance)
         self.print_packet(ackpkt, False, "Data ack")
 
     # Send fin ack from fin to server
-    def __fin_ack(self, rseq):
+    def __fin_ack(self, rseq, failchance):
         # Should be a byte then so convert to int
         if not isinstance(rseq, int):
             rseq = int.from_bytes(rseq, "big", signed=True)
@@ -211,8 +204,29 @@ class Session:
         finpkt.setsegment("SEQ", finpkt.sizes["SEQ"], rseq + finpkt.length)
         finpkt.setsegment("ACK", finpkt.sizes["ACK"], rseq)
         self.__lastack = rseq
-        self.__socket.sendto(finpkt.header, self.address)
+        self.__sendpkt(finpkt, failchance)
         self.print_packet(finpkt, False, "Fin ack")
+
+    # Fail chance between 0 and 1
+    def __sendpkt(self, pkt, failchance=0.0):
+        roll = random.random()
+        #
+        if roll > failchance:
+            # Send packet normally
+            self.__socket.sendto(pkt.header, self.address)
+            print("sent normally")
+        else:
+            # Do something nasty
+            roll2 = random.random()
+            if roll2 > 0.5:
+                print("Purposely sent duplicate packet (rolled {} with chance {})", roll, failchance)
+                self.__socket.sendto(pkt.header, self.address)
+                self.__socket.sendto(pkt.header, self.address)
+            else:
+                print("Purposely dropped packet (rolled {} with chance {}) ", roll, failchance)
+
+
+
 
     # Disconnect from session. This can be after a graceful release or forced.
     def disconnect(self):

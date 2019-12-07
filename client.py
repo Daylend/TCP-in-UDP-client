@@ -9,7 +9,7 @@ while not done:
     sess = Session.Session("127.0.0.1", 12222, 11111)
     try:
         sess.connect()
-        filehandler = open('test.jpeg', 'wb')
+        filehandler = open('test.zip', 'wb')
         filehandler.write(bytes(sess.databuffer))
         filehandler.close()
         done = True
